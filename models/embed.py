@@ -23,28 +23,72 @@ class PositionalEmbedding(nn.Module):
     def forward(self, x):
         return self.pe[:, :x.size(1)]
 
-class TokenEmbedding(nn.Module):
-    def __init__(self, c_in, d_model, m=7):
-        super(TokenEmbedding, self).__init__()
-        kernel_size = m + 1  # Window size: current point + m future points
-        padding = 0  # No padding for strictly forward look
-        self.tokenConv = nn.Conv1d(
-            in_channels=c_in, 
-            out_channels=d_model, 
-            kernel_size=kernel_size, 
-            padding=padding
-        )
-        
-        # Initialize weights
-        for module in self.modules():
-            if isinstance(module, nn.Conv1d):
-                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='leaky_relu')
+
+class FeatureExtractor(nn.Module):
+    def __init__(self, c_in, m=7, tau=3):
+        super(FeatureExtractor, self).__init__()
+        self.m = m
+        self.tau = tau
+        self.window_size = m + 1  # Current time step + m * tau
+        self.c_in = c_in
 
     def forward(self, x):
-        # Input x: (batch_size, seq_length, c_in)
-        x = self.tokenConv(x.permute(0, 2, 1))  # Shape: (batch_size, c_in, seq_length)
-        x = x.transpose(1, 2)  # Back to (batch_size, seq_length, d_model)
-        return x
+        """
+        Args:
+            x: Input tensor of shape (batch_size, seq_length, c_in)
+
+        Returns:
+            output: Tensor of shape (batch_size, valid_t, c_in * (m + 1))
+        """
+        batch_size, seq_length, c_in = x.shape
+        assert c_in == self.c_in, "Input channels do not match initialization."
+
+        # Define the valid length of time steps after applying the window
+        valid_t = seq_length - (self.m * self.tau)
+        feature_vectors = []
+
+        # Extract features for each t
+        for t in range(valid_t):
+            # Slice the input tensor for the window [t, t + m*tau]
+            indices = [t + i * self.tau for i in range(self.m + 1)]
+            window = x[:, indices, :]  # Shape: (batch_size, m+1, c_in)
+
+            # Flatten the window for each time step
+            flat_window = window.reshape(batch_size, -1)  # Shape: (batch_size, c_in * (m+1))
+            feature_vectors.append(flat_window)
+
+        # Stack all feature vectors along the time dimension
+        output = torch.stack(feature_vectors, dim=1)  # Shape: (batch_size, valid_t, c_in * (m+1))
+        return output
+
+class TokenEmbedding(nn.Module):
+    def __init__(self, c_in, d_model, m=7, tau=3):
+        """
+        Args:
+            c_in: Number of input features/channels.
+            d_model: Dimension of the final token embeddings.
+            m: Number of future steps to consider.
+            tau: Stride for future steps.
+        """
+        super(TokenEmbeddingWithFeatures, self).__init__()
+        self.feature_extractor = FeatureExtractor(c_in, m=m, tau=tau)
+        self.linear = nn.Linear(c_in * (m + 1), d_model)  # Project to desired embedding size
+
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape (batch_size, seq_length, c_in)
+        
+        Returns:
+            embeddings: Tensor of shape (batch_size, valid_t, d_model)
+        """
+        # Extract contextual features
+        features = self.feature_extractor(x)  # Shape: (batch_size, valid_t, c_in * (m+1))
+
+        # Project to desired embedding dimension
+        embeddings = self.linear(features)  # Shape: (batch_size, valid_t, d_model)
+        return embeddings
+
 
 class FixedEmbedding(nn.Module):
     def __init__(self, c_in, d_model):
