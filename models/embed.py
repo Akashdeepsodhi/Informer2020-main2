@@ -24,29 +24,27 @@ class PositionalEmbedding(nn.Module):
         return self.pe[:, :x.size(1)]
 
 class TokenEmbedding(nn.Module):
-    def __init__(self, c_in, d_model, m=2):
+    def __init__(self, c_in, d_model, m=7):
         super(TokenEmbedding, self).__init__()
-        kernel_size = 2 * m + 1  # Window size: 2m points ahead and behind
-        padding = m  # Ensures output length matches input length
+        kernel_size = m + 1  # Window size: current point + m future points
+        padding = 0  # No padding for strictly forward look
         self.tokenConv = nn.Conv1d(
             in_channels=c_in, 
             out_channels=d_model, 
             kernel_size=kernel_size, 
-            padding=padding, 
-            padding_mode='circular'  # Circular padding for sequence continuity
+            padding=padding
         )
         
         # Initialize weights
-        for m in self.modules():
-            if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
+        for module in self.modules():
+            if isinstance(module, nn.Conv1d):
+                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='leaky_relu')
 
     def forward(self, x):
         # Input x: (batch_size, seq_length, c_in)
         x = self.tokenConv(x.permute(0, 2, 1))  # Shape: (batch_size, c_in, seq_length)
         x = x.transpose(1, 2)  # Back to (batch_size, seq_length, d_model)
         return x
-
 
 class FixedEmbedding(nn.Module):
     def __init__(self, c_in, d_model):
