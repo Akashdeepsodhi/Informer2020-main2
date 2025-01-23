@@ -70,7 +70,7 @@ class TokenEmbedding(nn.Module):
             m: Number of future steps to consider.
             tau: Stride for future steps.
         """
-        super(TokenEmbeddingWithFeatures, self).__init__()
+        super(TokenEmbedding, self).__init__()
         self.feature_extractor = FeatureExtractor(c_in, m=m, tau=tau)
         self.linear = nn.Linear(c_in * (m + 1), d_model)  # Project to desired embedding size
 
