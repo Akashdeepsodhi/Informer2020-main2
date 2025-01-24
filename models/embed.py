@@ -117,10 +117,12 @@ class DataEmbedding(nn.Module):
         x = self.value_embedding(x) + self.temporal_embedding(x_mark)
 
         # Apply positional encoding before circular convolution
-        x = x + self.position_embedding(x)  # Apply positional encoding
+       
 
         # Apply CircularConv1D after positional encoding
         x = self.circular_conv(x)  # Shape: (batch_size, seq_len, d_model)
+
+        x = x + self.position_embedding(x)  # Apply positional encoding
 
         # Apply dropout
         x = self.dropout(x)
