@@ -59,7 +59,6 @@ class TokenEmbedding(nn.Module):
         embeddings = self.linear(features)  # Shape: (batch_size, valid_t, d_model)
         return embeddings
 
-
 class CircularConv1D(nn.Module):
     def __init__(self, c_in, d_model, kernel_size=3):
         super(CircularConv1D, self).__init__()
@@ -74,15 +73,32 @@ class CircularConv1D(nn.Module):
 
     def circular_pad(self, x):
         padding_size = self.kernel_size - 1
+        # Add padding to the start and end
         x = torch.cat([x[:, :, -padding_size:], x, x[:, :, :padding_size]], dim=2)
         return x
 
     def forward(self, x):
-        x = x.permute(0, 2, 1)  # Shape: (batch_size, c_in, seq_length)
+        # Save the original sequence length
+        original_seq_len = x.size(1)
+        
+        # Permute for Conv1D compatibility (batch_size, c_in, seq_len)
+        x = x.permute(0, 2, 1)
+        
+        # Apply circular padding
         x = self.circular_pad(x)
+        
+        # Apply convolution
         x = self.conv(x)
-        return x.permute(0, 2, 1)  # Shape: (batch_size, seq_length, d_model)
-
+        
+        # Truncate or pad to match the original sequence length
+        if x.size(2) > original_seq_len:
+            x = x[:, :, :original_seq_len]  # Truncate if longer
+        elif x.size(2) < original_seq_len:
+            pad_size = original_seq_len - x.size(2)
+            x = torch.cat([x, torch.zeros(x.size(0), x.size(1), pad_size, device=x.device)], dim=2)  # Pad if shorter
+        
+        # Permute back to (batch_size, seq_len, d_model)
+        return x.permute(0, 2, 1)
 
 class DataEmbedding(nn.Module):
     def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
