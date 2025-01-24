@@ -85,16 +85,32 @@ class CircularConv1D(nn.Module):
 
 
 class DataEmbedding(nn.Module):
-    def __init__(self, c_in, d_model, kernel_size=3, m=7, tau=3, dropout=0.1):
+    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
         super(DataEmbedding, self).__init__()
-        self.token_embedding = TokenEmbedding(c_in, d_model, m, tau)
-        self.position_embedding = PositionalEmbedding(d_model)
-        self.circular_conv = CircularConv1D(d_model, d_model, kernel_size)
-        self.dropout = nn.Dropout(dropout)
+
+        self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
+        self.position_embedding = PositionalEmbedding(d_model=d_model)
+        self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq) if embed_type!='timeF' else TimeFeatureEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
+
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, x_mark):
-        x = self.token_embedding(x) + self.position_embedding(x)
-        x = self.circular_conv(x)
+        # Step 1: Check and adjust sequence length (seq_len)
+        seq_len = x.size(1)
+        if seq_len < 96:
+            # Pad the sequence to 96
+            pad_size = 96 - seq_len
+            x = F.pad(x, (0, 0, 0, 0, 0, pad_size))  # Pad along the time dimension
+            x_mark = F.pad(x_mark, (0, 0, 0, 0, 0, pad_size))
+
+        elif seq_len > 96:
+            # Truncate the sequence to 96
+            x = x[:, :96, :]
+            x_mark = x_mark[:, :96, :]
+
+        # Step 2: Apply embeddings
+        x = self.value_embedding(x) + self.position_embedding(x) + self.temporal_embedding(x_mark)
+
         return self.dropout(x)
 
 
