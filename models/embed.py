@@ -59,6 +59,7 @@ class TokenEmbedding(nn.Module):
         embeddings = self.linear(features)  # Shape: (batch_size, valid_t, d_model)
         return embeddings
 
+
 class CircularConv1D(nn.Module):
     def __init__(self, c_in, d_model, kernel_size=3):
         super(CircularConv1D, self).__init__()
@@ -100,43 +101,47 @@ class CircularConv1D(nn.Module):
         # Permute back to (batch_size, seq_len, d_model)
         return x.permute(0, 2, 1)
 
+
+class TemporalEmbedding(nn.Module):
+    def __init__(self, d_model, embed_type='fixed', freq='h'):
+        super(TemporalEmbedding, self).__init__()
+        # Add temporal embeddings, assuming 'freq' and 'embed_type' dictate how they are generated
+        self.d_model = d_model
+        self.embed_type = embed_type
+        self.freq = freq
+        # Implement temporal embedding logic based on 'freq' and 'embed_type'
+
+
 class DataEmbedding(nn.Module):
     def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
         super(DataEmbedding, self).__init__()
 
         self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
         self.position_embedding = PositionalEmbedding(d_model=d_model)
-        self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq) if embed_type!='timeF' else TimeFeatureEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
+        self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
+
+        self.circular_conv = CircularConv1D(c_in=d_model, d_model=d_model, kernel_size=3)  # Circular Conv added
 
         self.dropout = nn.Dropout(p=dropout)
-        print(f"batch_x shape: {batch_x.shape}, batch_x_mark shape: {batch_x_mark.shape}")
-        print(f"batch_y shape: {batch_y.shape}, batch_y_mark shape: {batch_y_mark.shape}")
 
+    def forward(self, x, x_mark):
+        # Step 1: Get current sequence length
+        seq_len = x.size(1)
 
-   def forward(self, x, x_mark):
-    # Step 1: Get current sequence length
-    seq_len = x.size(1)
+        # Step 2: Adjust sequence length to 96
+        if seq_len < 96:
+            pad_size = 96 - seq_len
+            x = F.pad(x, (0, 0, 0, 0, 0, pad_size))  # Pad time dimension
+            x_mark = F.pad(x_mark, (0, 0, 0, 0, 0, pad_size))
+        elif seq_len > 96:
+            x = x[:, :96, :]
+            x_mark = x_mark[:, :96, :]
 
-    # Step 2: Adjust sequence length to 96
-    if seq_len < 96:
-        pad_size = 96 - seq_len
-        x = F.pad(x, (0, 0, 0, 0, 0, pad_size))  # Pad time dimension
-        x_mark = F.pad(x_mark, (0, 0, 0, 0, 0, pad_size))
-    elif seq_len > 96:
-        x = x[:, :96, :]
-        x_mark = x_mark[:, :96, :]
+        # Step 3: Apply embeddings
+        x = self.value_embedding(x) + self.position_embedding(x) + self.temporal_embedding(x_mark)
 
-    # Step 3: Apply embeddings
-    
-    print(f"x shape: {x.shape}, x_mark shape: {x_mark.shape}")
-        
-       
+        # Step 4: Apply Circular Convolution
+        x = self.circular_conv(x)
 
-    x = self.value_embedding(x) + self.position_embedding(x) + self.temporal_embedding(x_mark)
-
-    return self.dropout(x)
-
-        # Step 2: Apply embeddings
-
-
-
+        # Step 5: Dropout for regularization
+        return self.dropout(x)
