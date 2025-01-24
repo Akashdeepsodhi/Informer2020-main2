@@ -93,24 +93,34 @@ class DataEmbedding(nn.Module):
         self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq) if embed_type!='timeF' else TimeFeatureEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
 
         self.dropout = nn.Dropout(p=dropout)
+        print(f"batch_x shape: {batch_x.shape}, batch_x_mark shape: {batch_x_mark.shape}")
+        print(f"batch_y shape: {batch_y.shape}, batch_y_mark shape: {batch_y_mark.shape}")
 
-    def forward(self, x, x_mark):
-        # Step 1: Check and adjust sequence length (seq_len)
-        seq_len = x.size(1)
-        if seq_len < 96:
-            # Pad the sequence to 96
-            pad_size = 96 - seq_len
-            x = F.pad(x, (0, 0, 0, 0, 0, pad_size))  # Pad along the time dimension
-            x_mark = F.pad(x_mark, (0, 0, 0, 0, 0, pad_size))
 
-        elif seq_len > 96:
-            # Truncate the sequence to 96
-            x = x[:, :96, :]
-            x_mark = x_mark[:, :96, :]
+   def forward(self, x, x_mark):
+    # Step 1: Get current sequence length
+    seq_len = x.size(1)
+
+    # Step 2: Adjust sequence length to 96
+    if seq_len < 96:
+        pad_size = 96 - seq_len
+        x = F.pad(x, (0, 0, 0, 0, 0, pad_size))  # Pad time dimension
+        x_mark = F.pad(x_mark, (0, 0, 0, 0, 0, pad_size))
+    elif seq_len > 96:
+        x = x[:, :96, :]
+        x_mark = x_mark[:, :96, :]
+
+    # Step 3: Apply embeddings
+    
+    print(f"x shape: {x.shape}, x_mark shape: {x_mark.shape}")
+        
+       
+
+    x = self.value_embedding(x) + self.position_embedding(x) + self.temporal_embedding(x_mark)
+
+    return self.dropout(x)
 
         # Step 2: Apply embeddings
-        x = self.value_embedding(x) + self.position_embedding(x) + self.temporal_embedding(x_mark)
 
-        return self.dropout(x)
 
 
