@@ -89,6 +89,89 @@ class TokenEmbedding(nn.Module):
         embeddings = self.linear(features)  # Shape: (batch_size, valid_t, d_model)
         return embeddings
 
+class CircularConv1D(nn.Module):
+    def __init__(self, c_in, d_model, kernel_size=3):
+        """
+        Args:
+            c_in: Number of input channels.
+            d_model: Desired number of output features (output channels).
+            kernel_size: Size of the convolutional kernel.
+        """
+        super(CircularConv1D, self).__init__()
+        self.kernel_size = kernel_size
+
+        # Define the 1D convolution layer
+        self.conv = nn.Conv1d(
+            in_channels=c_in,
+            out_channels=d_model,
+            kernel_size=kernel_size,
+            stride=1,  # Default stride is 1
+            padding=0  # Padding will be added manually
+        )
+
+    def circular_pad(self, x):
+        """
+        Manually apply circular padding.
+        Args:
+            x: Input tensor of shape (batch_size, c_in, seq_length)
+        Returns:
+            Padded tensor of shape (batch_size, c_in, seq_length + 2 * (kernel_size - 1))
+        """
+        padding_size = self.kernel_size - 1
+        # Concatenate slices from the end and start for circular padding
+        x = torch.cat([x[:, :, -padding_size:], x, x[:, :, :padding_size]], dim=2)
+        return x
+
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape (batch_size, seq_length, c_in)
+        Returns:
+            output: Tensor of shape (batch_size, d_model, valid_t)
+        """
+        # Reshape to (batch_size, c_in, seq_length) for Conv1d
+        x = x.permute(0, 2, 1)
+
+        # Apply circular padding
+        x = self.circular_pad(x)
+
+        # Perform convolution
+        x = self.conv(x)
+
+        # Compute valid_t
+        valid_t = x.shape[2] - (self.kernel_size - 1)
+
+        # Retain only valid_t time steps
+        return x[:, :, :valid_t]
+
+
+class EmbeddingPipeline(nn.Module):
+    def __init__(self, c_in, d_model, kernel_size=3, m=7, tau=3):
+        """
+        Args:
+            c_in: Number of input channels/features.
+            d_model: Dimension of the final token embeddings.
+            kernel_size: Size of the convolution kernel.
+            m: Number of future steps to consider for feature extraction.
+            tau: Stride for future steps.
+        """
+        super(EmbeddingPipeline, self).__init__()
+        self.feature_extractor = FeatureExtractor(c_in, m, tau)
+        self.circular_conv = CircularConv1D(c_in * (m + 1), d_model, kernel_size)
+
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape (batch_size, seq_length, c_in)
+        Returns:
+            embeddings: Tensor of shape (batch_size, d_model, valid_t)
+        """
+        # Step 1: Extract contextual feature vectors
+        features = self.feature_extractor(x)  # Shape: (batch_size, valid_t, c_in * (m+1))
+
+        # Step 2: Perform circular convolution to produce embeddings
+        embeddings = self.circular_conv(features)  # Shape: (batch_size, d_model, valid_t)
+        return embeddings
 
 class FixedEmbedding(nn.Module):
     def __init__(self, c_in, d_model):
